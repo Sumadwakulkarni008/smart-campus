@@ -1,50 +1,6 @@
-// Smart Campus Rescue - Supabase client
-// Uses the browser-safe Supabase publishable key.
-// IMPORTANT: never put an sb_secret_ key in this file.
-
 const cfg = window.SUPABASE_CONFIG || {};
-const supabaseUrl = String(cfg.url || "").trim();
-const supabaseKey = String(cfg.anonKey || "").trim();
-
-const configured =
-  Boolean(supabaseUrl) &&
-  Boolean(supabaseKey) &&
-  !supabaseUrl.includes("PASTE_") &&
-  !supabaseKey.includes("PASTE_");
-
-let sb = null;
-
-if (configured && window.supabase?.createClient) {
-  try {
-    sb = window.supabase.createClient(supabaseUrl, supabaseKey, {
-      auth: {
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: true
-      }
-    });
-  } catch (e) {
-    console.error("Supabase client initialization failed:", e);
-  }
-} else {
-  console.error("Supabase JS library or configuration is missing.", {
-    hasLibrary: Boolean(window.supabase?.createClient),
-    hasUrl: Boolean(supabaseUrl),
-    hasKey: Boolean(supabaseKey)
-  });
-}
-
-function supabaseErrorMessage(error, fallback = "Request failed.") {
-  if (!error) return fallback;
-
-  console.error("Supabase error:", error);
-
-  if (error.name === "TypeError" && /fetch/i.test(error.message || "")) {
-    return "Cannot reach Supabase. Check your internet connection and Supabase project URL/key.";
-  }
-
-  return error.message || error.error_description || error.msg || fallback;
-}
+const configured = cfg.url && !cfg.url.includes("PASTE_") && cfg.anonKey && !cfg.anonKey.includes("PASTE_");
+const sb = configured ? window.supabase.createClient(cfg.url, cfg.anonKey) : null;
 
 const $ = (id) => document.getElementById(id);
 const state = {
@@ -55,7 +11,8 @@ const state = {
   selectedClass: null,
   classes: [],
   students: [],
-  teachers: []
+  teachers: [],
+  resetStudentId: null
 };
 
 function toast(message, type="info") {
@@ -70,6 +27,28 @@ function esc(v) {
 function today() { return new Date().toISOString().slice(0,10); }
 function dateText(v) { return v ? new Date(v + "T00:00:00").toLocaleDateString() : "-"; }
 function roleName(r) { return r === "admin" ? "Admin" : r === "teacher" ? "Teacher" : "Student"; }
+
+function togglePassword(id, button) {
+  const input = $(id);
+  if (!input) return;
+  const showing = input.type === "text";
+  input.type = showing ? "password" : "text";
+  button.textContent = showing ? "👁️" : "🙈";
+  button.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+}
+
+function openModal(id) { $(id)?.classList.remove("hidden"); }
+function closeModal(id) { $(id)?.classList.add("hidden"); }
+
+async function sendPasswordReset(email) {
+  const clean = String(email || "").trim().toLowerCase();
+  if (!clean) throw new Error("Please enter your email address.");
+  const { error } = await sb.auth.resetPasswordForEmail(clean, {
+    redirectTo: window.location.href.split("#")[0]
+  });
+  if (error) throw error;
+}
+
 
 function setLoginRole(role) {
   state.loginRole = role;
@@ -102,46 +81,14 @@ function buildNav(role) {
 }
 
 async function signIn(identifier, password) {
-  if (!sb) {
-    throw new Error(
-      "Supabase is not ready. Check supabase-config.js and make sure the Supabase JS library is loaded."
-    );
-  }
-
-  const cleanIdentifier = String(identifier || "").trim().toLowerCase();
-  const cleanPassword = String(password || "");
-
-  if (!cleanIdentifier || !cleanPassword) {
-    throw new Error("Please enter both your login ID and password.");
-  }
-
+  if (!sb) throw new Error("Supabase is not configured.");
   const email = state.loginRole === "student"
-    ? `${cleanIdentifier}@smartcampus.local`
-    : cleanIdentifier;
+    ? `${identifier.trim().toLowerCase()}@smartcampus.local`
+    : identifier.trim().toLowerCase();
 
-  console.log("Attempting Supabase login:", {
-    role: state.loginRole,
-    email
-  });
-
-  try {
-    const { data, error } = await sb.auth.signInWithPassword({
-      email,
-      password: cleanPassword
-    });
-
-    if (error) {
-      throw error;
-    }
-
-    if (!data?.user?.id) {
-      throw new Error("Supabase login succeeded but no user ID was returned.");
-    }
-
-    await loadProfile(data.user.id);
-  } catch (error) {
-    throw new Error(supabaseErrorMessage(error, "Login failed."));
-  }
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  await loadProfile(data.user.id);
 }
 
 async function loadProfile(userId) {
@@ -221,19 +168,18 @@ async function loadStudentDashboard() {
 }
 
 async function loadTeacherDashboard() {
-  const { data, error } = await sb.from("classes").select("id,class_name,section,semester,department,subject").eq("teacher_id", state.profile.id).order("semester").order("section").order("subject");
+  const { data, error } = await sb.from("classes").select("id,class_name,section,semester,department,subject").eq("teacher_id", state.profile.id).order("class_name");
   if (error) throw error;
   state.classes = data || [];
   $("teacherClasses").innerHTML = state.classes.map(c => `
     <button class="class-card" data-class-id="${c.id}">
-      <span>📘</span><b>${esc(c.class_name)}</b><strong>${esc(c.subject)}</strong><small>${esc(c.department)} · Sem ${c.semester} · Section ${esc(c.section)}</small>
+      <span>📘</span><b>${esc(c.class_name)}</b><strong>${esc(c.subject)}</strong><small>${esc(c.department)} · Sem ${c.semester}</small>
     </button>`).join("") || `<div class="panel">No classes have been assigned by Admin.</div>`;
   document.querySelectorAll(".class-card").forEach(b => b.addEventListener("click", () => openAttendance(b.dataset.classId)));
 }
 
 async function openAttendance(classId) {
   const cls = state.classes.find(c=>c.id===classId);
-  if (!cls) return;
   state.selectedClass = cls;
   $("teacherAttendancePanel").classList.remove("hidden");
   $("teacherClassTitle").textContent = `${cls.class_name} — ${cls.subject}`;
@@ -244,61 +190,20 @@ async function openAttendance(classId) {
 
 async function loadClassStudents() {
   const c = state.selectedClass;
-  if (!c) return;
-
-  const { data: students, error } = await sb
-    .from("profiles")
-    .select("id,full_name,usn,section,semester,department")
-    .eq("role","student")
-    .eq("section",c.section)
-    .eq("semester",c.semester)
-    .eq("department",c.department)
-    .order("usn");
+  const { data: students, error } = await sb.from("profiles").select("id,full_name,usn,section").eq("role","student").eq("section",c.section).eq("semester",c.semester).eq("department",c.department).order("usn");
   if (error) throw error;
   state.students = students || [];
-
-  const { data: history, error: he } = await sb
-    .from("attendance")
-    .select("student_id,status")
-    .eq("class_id",c.id);
-  if (he) throw he;
-
-  const totals = {};
-  (history || []).forEach(r => {
-    if (!totals[r.student_id]) totals[r.student_id] = { total: 0, present: 0 };
-    totals[r.student_id].total++;
-    if (r.status === "present") totals[r.student_id].present++;
-  });
-
   const date = $("attendanceDate").value;
-  const { data: existing, error: ee } = await sb
-    .from("attendance")
-    .select("student_id,status")
-    .eq("class_id",c.id)
-    .eq("attendance_date",date);
+  const { data: existing, error: ee } = await sb.from("attendance").select("student_id,status").eq("class_id",c.id).eq("attendance_date",date);
   if (ee) throw ee;
   const map = Object.fromEntries((existing||[]).map(x=>[x.student_id,x.status]));
-
-  $("teacherStudentTable").innerHTML = `
-    <thead><tr><th>#</th><th>USN</th><th>Student Name</th><th>Attendance %</th><th>Today's Attendance</th></tr></thead>
-    <tbody>${
-      state.students.map((st,i)=>{
-        const t = totals[st.id] || {total:0,present:0};
-        const pct = t.total ? Math.round(t.present / t.total * 100) : 0;
-        return `<tr>
-          <td>${i+1}</td>
-          <td>${esc(st.usn)}</td>
-          <td>${esc(st.full_name)}</td>
-          <td><b>${pct}%</b><small class="muted"> ${t.present}/${t.total}</small></td>
-          <td>
-            <div class="attendance-toggle">
-              <label><input type="radio" name="st_${st.id}" value="present" ${map[st.id] !== "absent" ? "checked":""}> 🟢 Present</label>
-              <label><input type="radio" name="st_${st.id}" value="absent" ${map[st.id] === "absent" ? "checked":""}> 🔴 Absent</label>
-            </div>
-          </td>
-        </tr>`;
-      }).join("") || `<tr><td colspan="5">No students registered in ${esc(c.department)} · Semester ${c.semester} · Section ${esc(c.section)}.</td></tr>`
-    }</tbody>`;
+  $("teacherStudentTable").innerHTML = `<thead><tr><th>#</th><th>USN</th><th>Student Name</th><th>Attendance</th></tr></thead><tbody>${
+    state.students.map((s,i)=>`<tr><td>${i+1}</td><td>${esc(s.usn)}</td><td>${esc(s.full_name)}</td><td>
+      <div class="attendance-toggle">
+        <label><input type="radio" name="st_${s.id}" value="present" ${map[s.id] !== "absent" ? "checked":""}> Present</label>
+        <label><input type="radio" name="st_${s.id}" value="absent" ${map[s.id] === "absent" ? "checked":""}> Absent</label>
+      </div></td></tr>`).join("")
+  }</tbody>`;
 }
 
 async function submitAttendance() {
@@ -354,10 +259,16 @@ async function loadAdminDashboard() {
     <div class="card"><span>👨‍🏫</span><div><small>Teachers</small><strong>${state.teachers.length}</strong></div></div>
     <div class="card"><span>🏫</span><div><small>Classes</small><strong>${(classes||[]).length}</strong></div></div>
     <div class="card success"><span>🔐</span><div><small>Access</small><strong>Admin</strong></div></div>`;
-  $("adminStudentTable").innerHTML=`<thead><tr><th>USN</th><th>Name</th><th>Department</th><th>Semester</th><th>Section</th><th>Group</th></tr></thead><tbody>${state.students.map(s=>`<tr><td>${esc(s.usn)}</td><td>${esc(s.full_name)}</td><td>${esc(s.department)}</td><td>${s.semester}</td><td>${esc(s.section)}</td><td><b>${esc(String(s.semester)+String(s.section))}</b></td></tr>`).join("")||`<tr><td colspan="6">No students registered.</td></tr>`}</tbody>`;
-  $("adminTeacherTable").innerHTML=`<thead><tr><th>Name</th><th>Email</th><th>Department</th></tr></thead><tbody>${state.teachers.map(t=>`<tr><td>${esc(t.full_name)}</td><td>${esc(t.email)}</td><td>${esc(t.department)}</td></tr>`).join("")||`<tr><td colspan="3">No teachers.</td></tr>`}</tbody>`;
+  $("adminStudentTable").innerHTML=`<thead><tr><th>USN</th><th>Name</th><th>Dept</th><th>Sem</th><th>Section</th><th>Actions</th></tr></thead><tbody>${state.students.map(s=>`<tr><td>${esc(s.usn)}</td><td>${esc(s.full_name)}</td><td>${esc(s.department)}</td><td>${s.semester}</td><td>${esc(s.section)}</td><td class="action-group"><button type="button" class="small-action" data-reset-student="${s.id}" data-student-name="${esc(s.full_name)}">🔑 Password</button><button type="button" class="small-action danger-action" data-delete-student="${s.id}" data-student-name="${esc(s.full_name)}">🗑️ Delete</button></td></tr>`).join("")||`<tr><td colspan="6">No students.</td></tr>`}</tbody>`;
+  $("adminTeacherTable").innerHTML=`<thead><tr><th>Name</th><th>Email</th><th>Department</th><th>Actions</th></tr></thead><tbody>${state.teachers.map(t=>`<tr><td>${esc(t.full_name)}</td><td>${esc(t.email)}</td><td>${esc(t.department)}</td><td><button type="button" class="small-action danger-action" data-delete-teacher="${t.id}" data-teacher-name="${esc(t.full_name)}">🗑️ Delete</button></td></tr>`).join("")||`<tr><td colspan="4">No teachers.</td></tr>`}</tbody>`;
   $("classTeacherSelect").innerHTML=`<option value="">Select teacher</option>`+state.teachers.map(t=>`<option value="${t.id}">${esc(t.full_name)} — ${esc(t.department)}</option>`).join("");
-  $("adminClassTable").innerHTML=`<thead><tr><th>Group</th><th>Subject</th><th>Department</th><th>Semester</th><th>Section</th><th>Teacher</th></tr></thead><tbody>${(classes||[]).map(c=>`<tr><td><b>${esc(c.class_name)}</b></td><td>${esc(c.subject)}</td><td>${esc(c.department)}</td><td>${c.semester}</td><td>${esc(c.section)}</td><td>${esc(c.teacher?.full_name||"Unassigned")}</td></tr>`).join("")||`<tr><td colspan="6">No classes/teacher assignments.</td></tr>`}</tbody>`;
+  $("adminClassTable").innerHTML=`<thead><tr><th>Class</th><th>Subject</th><th>Dept</th><th>Sem</th><th>Teacher</th><th>Actions</th></tr></thead><tbody>${(classes||[]).map(c=>`<tr><td>${esc(c.class_name)}</td><td>${esc(c.subject)}</td><td>${esc(c.department)}</td><td>${c.semester}</td><td>${esc(c.teacher?.full_name||"Unassigned")}</td><td><button type="button" class="small-action danger-action" data-delete-class="${c.id}" data-class-name="${esc(c.class_name)}" data-subject="${esc(c.subject)}">🗑️ Delete</button></td></tr>`).join("")||`<tr><td colspan="6">No classes.</td></tr>`}</tbody>`;
+}
+
+async function resetStudentPassword(userId, newPassword) {
+  if (!userId) throw new Error("Student account was not selected.");
+  if (!newPassword || newPassword.length < 6) throw new Error("Password must be at least 6 characters.");
+  return invokeCreateUser({ action: "reset-password", user_id: userId, password: newPassword });
 }
 
 async function invokeCreateUser(body) {
@@ -367,21 +278,16 @@ async function invokeCreateUser(body) {
   return data;
 }
 
-
-$("studentForm")?.addEventListener("input",()=>{
-  const sem=$("studentForm").elements.semester.value;
-  const sec=$("studentForm").elements.section.value;
-  const dept=String($("studentForm").elements.department.value||"").trim().toUpperCase();
-  $("studentGroupPreview").textContent = sem && sec ? `Group: ${sem}${sec}${dept ? ` · ${dept}` : ""}` : "Group: —";
-});
-
-function updateClassGroupPreview(){
-  const sem=$("classSemester")?.value;
-  const sec=$("classSection")?.value;
-  if($("className")) $("className").value = sem && sec ? `${sem}${sec}` : "";
+async function deleteUserAccount(userId, expectedRole) {
+  if (!userId) throw new Error("Account was not selected.");
+  return invokeCreateUser({ action: "delete-user", user_id: userId, expected_role: expectedRole });
 }
-$("classSemester")?.addEventListener("change",updateClassGroupPreview);
-$("classSection")?.addEventListener("change",updateClassGroupPreview);
+
+async function deleteClass(classId) {
+  if (!classId) throw new Error("Class was not selected.");
+  const { error } = await sb.from("classes").delete().eq("id", classId);
+  if (error) throw error;
+}
 
 document.querySelectorAll("[data-login-role]").forEach(b=>b.addEventListener("click",()=>setLoginRole(b.dataset.loginRole)));
 $("loginForm").addEventListener("submit", async e => {
@@ -407,17 +313,11 @@ $("studentForm").addEventListener("submit",async e=>{
   e.preventDefault();
   const f=new FormData(e.target);
   try{
-    const department = String(f.get("department") || "").trim().toUpperCase();
-    const semester = Number(f.get("semester"));
-    const section = String(f.get("section") || "").trim().toUpperCase();
     await invokeCreateUser({
-      role:"student", full_name:f.get("full_name"), usn:String(f.get("usn") || "").trim().toUpperCase(), password:f.get("password"),
-      department, semester, section
+      role:"student", full_name:f.get("full_name"), usn:f.get("usn"), password:f.get("password"),
+      department:f.get("department"), semester:Number(f.get("semester")), section:f.get("section")
     });
-    e.target.reset();
-    $("studentGroupPreview").textContent = "Group: —";
-    toast(`Student registered in ${semester}${section} · ${department}.`,"success");
-    await loadAdminDashboard();
+    e.target.reset(); toast("Student account created.","success"); await loadAdminDashboard();
   }catch(err){toast(err.message||"Could not create student.","error");}
 });
 $("teacherForm").addEventListener("submit",async e=>{
@@ -434,47 +334,131 @@ $("teacherForm").addEventListener("submit",async e=>{
 $("classForm").addEventListener("submit",async e=>{
   e.preventDefault();
   const f=new FormData(e.target);
-  const semester=Number(f.get("semester"));
-  const section=String(f.get("section") || "").trim().toUpperCase();
-  const department=String(f.get("department") || "").trim().toUpperCase();
-  const payload={class_name:`${semester}${section}`,section,department,semester,subject:String(f.get("subject") || "").trim(),teacher_id:f.get("teacher_id"),created_by:state.profile.id};
+  const payload={class_name:f.get("class_name"),section:f.get("section"),department:f.get("department"),semester:Number(f.get("semester")),subject:f.get("subject"),teacher_id:f.get("teacher_id"),created_by:state.profile.id};
   const {error}=await sb.from("classes").insert(payload);
   if(error) return toast(error.message,"error");
-  e.target.reset();
-  $("className").value="";
-  toast(`Teacher assigned to ${semester}${section} · ${department}.`,"success");
-  await loadAdminDashboard();
+  e.target.reset(); toast("Class created and teacher assigned.","success"); await loadAdminDashboard();
 });
 
-if(!configured || !sb) {
-  $("setupNotice").classList.remove("hidden");
-}
+// Password visibility
+document.querySelectorAll("[data-password-toggle]").forEach(btn=>btn.addEventListener("click",()=>togglePassword(btn.dataset.passwordToggle,btn)));
+
+// Forgot password: real-email accounts can receive a Supabase reset link. Students use Admin reset because their login is USN-based.
+$("forgotPasswordBtn").addEventListener("click",()=>{
+  const role=state.loginRole;
+  $("forgotPasswordStudentHelp").classList.toggle("hidden",role!=="student");
+  $("forgotPasswordForm").classList.toggle("hidden",role==="student");
+  $("forgotPasswordMessage").textContent="";
+  const identifier=String($("identifier").value||"").trim();
+  $("forgotEmail").value=(role!=="student" && identifier.includes("@")) ? identifier : "";
+  openModal("forgotPasswordModal");
+});
+
+$("forgotPasswordForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const btn=e.submitter; btn.disabled=true;
+  try{
+    await sendPasswordReset($("forgotEmail").value);
+    $("forgotPasswordMessage").textContent="Reset link sent. Check your email.";
+    toast("Password reset link sent.","success");
+  }catch(err){
+    $("forgotPasswordMessage").textContent=err.message||"Could not send reset link.";
+    toast(err.message||"Could not send reset link.","error");
+  }finally{btn.disabled=false;}
+});
+
+// Admin account deletion actions
+document.addEventListener("click",async e=>{
+  const studentBtn=e.target.closest("[data-delete-student]");
+  const teacherBtn=e.target.closest("[data-delete-teacher]");
+  const classBtn=e.target.closest("[data-delete-class]");
+  if(!studentBtn && !teacherBtn && !classBtn) return;
+
+  try {
+    if(studentBtn){
+      const name=studentBtn.dataset.studentName || "this student";
+      if(!window.confirm(`Delete ${name}? This will permanently remove the student login, profile, attendance records and notifications.`)) return;
+      studentBtn.disabled=true;
+      await deleteUserAccount(studentBtn.dataset.deleteStudent,"student");
+      toast("Student deleted successfully.","success");
+    } else if(teacherBtn){
+      const name=teacherBtn.dataset.teacherName || "this teacher";
+      if(!window.confirm(`Delete ${name}? Their assigned classes will become Unassigned. Their teacher login will be permanently removed.`)) return;
+      teacherBtn.disabled=true;
+      await deleteUserAccount(teacherBtn.dataset.deleteTeacher,"teacher");
+      toast("Teacher deleted successfully. Assigned classes are now unassigned.","success");
+    } else {
+      const label=`${classBtn.dataset.className || "this class"} — ${classBtn.dataset.subject || ""}`.replace(/\s+—\s*$/,"");
+      if(!window.confirm(`Delete ${label}? This will permanently remove this class and its attendance records.`)) return;
+      classBtn.disabled=true;
+      await deleteClass(classBtn.dataset.deleteClass);
+      toast("Class deleted successfully.","success");
+    }
+    await loadAdminDashboard();
+  } catch(err) {
+    toast(err.message || "Could not delete the selected item.","error");
+  }
+});
+
+// Admin password reset for students
+document.addEventListener("click",e=>{
+  const btn=e.target.closest("[data-reset-student]");
+  if(!btn) return;
+  state.resetStudentId=btn.dataset.resetStudent;
+  $("resetStudentName").textContent=`Student: ${btn.dataset.studentName}`;
+  $("adminNewPassword").value="";
+  $("adminConfirmPassword").value="";
+  openModal("adminPasswordModal");
+});
+
+$("recoveryPasswordForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const password=$("recoveryNewPassword").value;
+  const confirm=$("recoveryConfirmPassword").value;
+  if(password!==confirm) return toast("Passwords do not match.","error");
+  const btn=e.submitter; btn.disabled=true; btn.textContent="Saving...";
+  try{
+    const {error}=await sb.auth.updateUser({password});
+    if(error) throw error;
+    closeModal("recoveryPasswordModal");
+    $("recoveryNewPassword").value="";
+    $("recoveryConfirmPassword").value="";
+    toast("Password updated successfully. Please log in again.","success");
+    await sb.auth.signOut();
+  }catch(err){toast(err.message||"Could not update password.","error");}
+  finally{btn.disabled=false;btn.textContent="Save New Password";}
+});
+
+$("adminPasswordForm").addEventListener("submit",async e=>{
+  e.preventDefault();
+  const password=$("adminNewPassword").value;
+  const confirm=$("adminConfirmPassword").value;
+  if(password!==confirm) return toast("Passwords do not match.","error");
+  const btn=e.submitter; btn.disabled=true; btn.textContent="Changing...";
+  try{
+    await resetStudentPassword(state.resetStudentId,password);
+    closeModal("adminPasswordModal");
+    toast("Student password changed successfully.","success");
+  }catch(err){toast(err.message||"Could not change password.","error");}
+  finally{btn.disabled=false;btn.textContent="Change Password";}
+});
+
+document.querySelectorAll("[data-close-modal]").forEach(btn=>btn.addEventListener("click",()=>closeModal(btn.dataset.closeModal)));
+document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m) closeModal(m.id);}));
+
+if(!configured) $("setupNotice").classList.remove("hidden");
 
 (async function init(){
   if(!sb) return;
-
-  try {
-    const {data:{session}, error} = await sb.auth.getSession();
-
-    if(error) {
-      console.error("Supabase session check failed:", error);
+  const {data:{session}}=await sb.auth.getSession();
+  if(session){
+    try{await loadProfile(session.user.id);}catch(e){await sb.auth.signOut();toast("Profile setup is incomplete.","error");}
+  }
+  sb.auth.onAuthStateChange((event,session)=>{
+    if(event==="PASSWORD_RECOVERY"){
+      openModal("recoveryPasswordModal");
       return;
     }
-
-    if(session){
-      try {
-        await loadProfile(session.user.id);
-      } catch(e) {
-        console.error("Profile loading failed:", e);
-        await sb.auth.signOut();
-        toast("Profile setup is incomplete. Check the profiles table.", "error");
-      }
-    }
-  } catch(e) {
-    console.error("Supabase connection check failed:", e);
-  }
-
-  sb.auth.onAuthStateChange((event,session)=>{
     if(event==="SIGNED_OUT"){
       $("appShell").classList.add("hidden");
       $("loginScreen").classList.remove("hidden");
