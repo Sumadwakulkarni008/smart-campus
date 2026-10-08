@@ -184,14 +184,17 @@
 <script src="app.js"></script>
 
 <script>
-// The Service Worker Kill-Switch
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.getRegistrations().then(function(registrations) {
     for(let registration of registrations) {
       registration.unregister();
-      console.log("Old Service Worker removed.");
     }
   });
+  // Force reload once to clear cache
+  if (!sessionStorage.getItem('reloaded')) {
+    sessionStorage.setItem('reloaded', 'true');
+    window.location.reload(true);
+  }
 }
 </script>
 </body>
