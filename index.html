@@ -184,7 +184,15 @@
 <script src="app.js"></script>
 
 <script>
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(()=>{});
+// The Service Worker Kill-Switch
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(function(registrations) {
+    for(let registration of registrations) {
+      registration.unregister();
+      console.log("Old Service Worker removed.");
+    }
+  });
+}
 </script>
 </body>
 </html>
