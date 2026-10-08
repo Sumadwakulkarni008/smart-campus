@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Smart Campus Rescue</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#10243e">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="toast" class="toast"></div>
+
+<!-- LOGIN -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-card">
+    <div class="brand large">🎓 <span>Smart Campus<br>Rescue</span></div>
+    <p class="muted">Attendance & student support system</p>
+
+    <div class="role-tabs">
+      <button class="role-tab active" data-login-role="student">Student</button>
+      <button class="role-tab" data-login-role="teacher">Teacher</button>
+      <button class="role-tab" data-login-role="admin">Admin</button>
+    </div>
+
+    <form id="loginForm">
+      <label id="identifierLabel">USN</label>
+      <input id="identifier" required autocomplete="username" placeholder="Enter your USN">
+      <label>Password</label>
+      <input id="password" type="password" required autocomplete="current-password" placeholder="Enter password">
+      <button class="primary full" type="submit">Login</button>
+    </form>
+
+    <div id="setupNotice" class="notice hidden">
+      <b>Backend setup required.</b>
+      <p>Add your Supabase URL and anon key in <code>supabase-config.js</code>, then deploy the files to GitHub Pages.</p>
+    </div>
+    <p class="login-note">Student login uses USN + password. Teacher/Admin use email + password.</p>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="appShell" class="app hidden">
+  <aside class="sidebar">
+    <div class="brand">🎓 <span>Smart Campus<br>Rescue</span></div>
+    <div id="userMini" class="user-mini"></div>
+    <nav id="nav"></nav>
+    <div class="sidebar-note">
+      <b>Smart Campus Rescue</b>
+      <p>Admin → users & classes</p>
+      <p>Teacher → attendance</p>
+      <p>Student → own records</p>
+    </div>
+    <button id="logoutBtn" class="logout">↪ Logout</button>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="pageTitle">Dashboard</h1>
+        <p id="pageSubtitle">College attendance & support</p>
+      </div>
+      <button class="menu" id="menuBtn">☰</button>
+    </header>
+
+    <!-- STUDENT -->
+    <section id="studentDashboard" class="page">
+      <div class="hero">
+        <div><span class="tag">STUDENT PORTAL</span><h2 id="studentWelcome">Welcome</h2><p id="studentMeta"></p></div>
+        <div class="hero-icon">🎓</div>
+      </div>
+      <div id="studentKpis" class="cards"></div>
+      <div class="panel">
+        <div class="panel-title"><h3>My Subject Attendance</h3><span class="pill">Personal</span></div>
+        <div class="table-wrap"><table id="studentAttendanceTable"></table></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title"><h3>Recent Attendance</h3></div>
+        <div class="table-wrap"><table id="studentHistoryTable"></table></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title"><h3>My Notifications</h3><span id="studentNotificationCount" class="pill"></span></div>
+        <div id="studentNotifications"></div>
+      </div>
+    </section>
+
+    <!-- TEACHER -->
+    <section id="teacherDashboard" class="page">
+      <div class="section-head"><h2>👨‍🏫 Teacher Dashboard</h2><p>Select one of your assigned classes to take attendance.</p></div>
+      <div id="teacherClasses" class="class-grid"></div>
+      <div id="teacherAttendancePanel" class="panel hidden">
+        <div class="panel-title"><h3 id="teacherClassTitle">Attendance</h3><button id="closeAttendance" class="ghost">Close</button></div>
+        <div class="attendance-controls">
+          <label>Date<input id="attendanceDate" type="date"></label>
+          <label>Subject<input id="attendanceSubject" readonly></label>
+        </div>
+        <div class="table-wrap"><table id="teacherStudentTable"></table></div>
+        <button id="submitAttendance" class="primary">Submit Attendance</button>
+        <div id="attendanceResult"></div>
+      </div>
+    </section>
+
+    <!-- ADMIN -->
+    <section id="adminDashboard" class="page">
+      <div class="section-head"><h2>🛡️ Admin Dashboard</h2><p>Only Admin can create student/teacher accounts and manage classes.</p></div>
+      <div id="adminKpis" class="cards"></div>
+
+      <div class="admin-tabs">
+        <button class="admin-tab active" data-admin-tab="students">Student Registration</button>
+        <button class="admin-tab" data-admin-tab="teachers">Teachers</button>
+        <button class="admin-tab" data-admin-tab="classes">Classes & Teacher Assignment</button>
+      </div>
+
+      <div id="adminStudents" class="admin-panel">
+        <div class="panel">
+          <div class="panel-title"><h3>Student Registration</h3><span class="pill">Admin only</span></div>
+          <p class="muted small">Register students into their academic group. Example: Semester 1 + CSE + Section C = Group 1C. Every student in the same group will automatically appear for teachers assigned to that group.</p>
+          <form id="studentForm" class="form-grid">
+            <input name="full_name" placeholder="Student full name" required>
+            <input name="usn" placeholder="USN e.g. 1SJ23CS001" required>
+            <input name="password" type="password" placeholder="Temporary password" required minlength="6">
+            <input name="department" placeholder="Department e.g. CSE" required>
+            <select name="semester" required>
+              <option value="">Select semester</option>
+              <option value="1">Semester 1</option><option value="2">Semester 2</option>
+              <option value="3">Semester 3</option><option value="4">Semester 4</option>
+              <option value="5">Semester 5</option><option value="6">Semester 6</option>
+              <option value="7">Semester 7</option><option value="8">Semester 8</option>
+            </select>
+            <select name="section" required>
+              <option value="">Select section</option>
+              <option value="A">Section A</option><option value="B">Section B</option>
+              <option value="C">Section C</option><option value="D">Section D</option>
+              <option value="E">Section E</option><option value="F">Section F</option>
+            </select>
+            <div class="group-preview" id="studentGroupPreview">Group: —</div>
+            <button class="primary" type="submit">Register Student</button>
+          </form>
+          <p class="muted small">The student receives login access only after Admin creates the account.</p>
+        </div>
+        <div class="panel"><h3>Registered Students</h3><div class="table-wrap"><table id="adminStudentTable"></table></div></div>
+      </div>
+
+      <div id="adminTeachers" class="admin-panel hidden">
+        <div class="panel">
+          <div class="panel-title"><h3>Add Teacher</h3><span class="pill">Admin only</span></div>
+          <form id="teacherForm" class="form-grid">
+            <input name="full_name" placeholder="Teacher full name" required>
+            <input name="email" type="email" placeholder="Teacher email" required>
+            <input name="password" type="password" placeholder="Temporary password" required minlength="6">
+            <input name="department" placeholder="Department e.g. CSE" required>
+            <button class="primary" type="submit">Create Teacher</button>
+          </form>
+        </div>
+        <div class="panel"><h3>Teachers</h3><div class="table-wrap"><table id="adminTeacherTable"></table></div></div>
+      </div>
+
+      <div id="adminClasses" class="admin-panel hidden">
+        <div class="panel">
+          <div class="panel-title"><h3>Create Class</h3><span class="pill">Admin only</span></div>
+          <form id="classForm" class="form-grid">
+            <select name="semester" id="classSemester" required>
+              <option value="">Select semester</option>
+              <option value="1">Semester 1</option><option value="2">Semester 2</option>
+              <option value="3">Semester 3</option><option value="4">Semester 4</option>
+              <option value="5">Semester 5</option><option value="6">Semester 6</option>
+              <option value="7">Semester 7</option><option value="8">Semester 8</option>
+            </select>
+            <input name="department" id="classDepartment" placeholder="Department e.g. CSE" required>
+            <select name="section" id="classSection" required>
+              <option value="">Select section</option>
+              <option value="A">Section A</option><option value="B">Section B</option>
+              <option value="C">Section C</option><option value="D">Section D</option>
+              <option value="E">Section E</option><option value="F">Section F</option>
+            </select>
+            <input name="class_name" id="className" placeholder="Group name e.g. 1C" readonly required>
+            <input name="subject" placeholder="Subject e.g. DAA" required>
+            <select name="teacher_id" id="classTeacherSelect" required></select>
+            <button class="primary" type="submit">Assign Teacher to Group</button>
+          </form>
+          <p class="muted small">Example: Semester 1 + CSE + Section C creates group <b>1C</b>. The assigned teacher automatically sees all registered CSE 1C students.</p>
+        </div>
+        <div class="panel"><h3>Classes</h3><div class="table-wrap"><table id="adminClassTable"></table></div></div>
+      </div>
+    </section>
+
+    <!-- GENERIC ABOUT -->
+    <section id="aboutPage" class="page">
+      <div class="section-head"><h2>ℹ️ Smart Campus Rescue</h2><p>LCNC-inspired college attendance case study.</p></div>
+      <div class="panel">
+        <h3>How the system works</h3>
+        <div class="tool-grid">
+          <div><b>📱 Student</b><p>Logs in with USN and sees only their own attendance, history and notifications.</p></div>
+          <div><b>👨‍🏫 Teacher</b><p>Opens assigned class, marks Present/Absent and submits attendance.</p></div>
+          <div><b>🛡️ Admin</b><p>Creates student/teacher accounts and classes. Teachers and students cannot create users.</p></div>
+          <div><b>⚡ Automation</b><p>When a student is marked absent, an in-app notification is created automatically.</p></div>
+        </div>
+        <div class="notice"><b>Message note:</b> This version sends an in-app absence notification. Real SMS/WhatsApp delivery needs an external messaging provider.</div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-config.js"></script>
+<script src="app.js"></script>
+<script>
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("./sw.js").then(reg => reg.update()).catch(()=>{});
+}
+</script>
+</body>
+</html>
