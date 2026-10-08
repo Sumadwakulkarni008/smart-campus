@@ -2,9 +2,9 @@
 
 A role-based college attendance PWA with:
 
-- **Admin:** creates student/teacher accounts and classes.
-- **Teacher:** sees only assigned classes and marks Present/Absent.
-- **Student:** logs in with **USN + password** and sees only their own attendance/history/notifications.
+- **Admin:** registers students into semester/department/section groups, creates teacher accounts, and assigns teachers to class groups/subjects.
+- **Teacher:** sees only assigned classes, automatically gets all students in that group, marks Present/Absent, and monitors individual attendance percentages.
+- **Student:** logs in with **USN + password** and sees only their own subject-wise attendance, history, percentage, and notifications.
 - **Automatic in-app absence notification:** created/updated when a teacher submits an absent status.
 - **PWA:** installable on Android from Chrome.
 
@@ -76,18 +76,7 @@ The website will be:
 
 `https://YOUR_USERNAME.github.io/YOUR_REPOSITORY/`
 
-### 7. Password features
-
-- Login password fields have an eye button to show/hide the password.
-- Teacher/Admin accounts can use **Forgot password?** to receive a Supabase email reset link.
-- Student accounts use USN + a non-email login address, so student password recovery is handled by Admin.
-- Admin → Students now has **Change Password** for each student.
-
-### Admin password reset Edge Function
-
-The website sends the reset request to the existing `admin-create-user` Edge Function using `{ action: "reset-password", user_id, password }`. Redeploy the updated function from `supabase/functions/admin-create-user/index.ts` included with this update before using the Admin Change Password button.
-
-## 8. Create users from the Admin dashboard
+### 7. Create users from the Admin dashboard
 
 Login as Admin.
 
@@ -128,11 +117,29 @@ The current app provides **in-app notifications**. Actual SMS or WhatsApp delive
 - Never expose the Supabase service role key in `supabase-config.js` or GitHub Pages.
 
 
-## V5 Admin management
-- Password eye toggle is available on password fields.
-- Teacher/Admin can request password reset by email.
-- Student password can be changed by Admin because student login uses USN + internal account email.
-- Admin can delete students. This removes the Auth account and cascades the student's profile, attendance, and notifications.
-- Admin can delete teachers. Their assigned classes are kept but teacher assignment is cleared.
-- Admin can delete classes. Attendance records for that class are removed by the database cascade.
-- Admin accounts cannot be deleted from the Admin dashboard.
+## Academic group model
+
+Students are registered using **Department + Semester + Section**. For example, all CSE students in Semester 1 Section C belong to group **1C**.
+
+When Admin assigns a teacher to a subject for **1C / CSE**, the Teacher automatically sees every registered student whose Department, Semester, and Section match that group. Students do not need to be manually attached to each teacher.
+
+The teacher attendance table also calculates each student's attendance percentage for that subject/class.
+
+
+## Admin management update
+
+This package preserves the V3 design and adds:
+- 👁️ Show/hide password buttons on login, student registration, teacher registration and password-update fields.
+- 🔑 Admin can change a student's password.
+- 🗑️ Admin can delete a student.
+- 🗑️ Admin can delete a teacher; their classes remain and become **Unassigned**.
+- 🗑️ Admin can delete a class; its attendance and related notifications are removed.
+- The Admin account itself cannot be deleted.
+
+### GitHub Pages
+Replace `app.js`, `index.html`, `style.css`, and `sw.js` in the existing repository. Keep your existing `supabase-config.js` and other existing files.
+
+### Supabase Edge Function
+Deploy `supabase/functions/admin-create-user/index.ts` as the `admin-create-user` Edge Function. Keep **Verify JWT OFF** for this function because the function manually validates the logged-in user's access token using the server-side Supabase secret.
+
+Never put a Supabase secret/service-role key in GitHub or frontend files.
