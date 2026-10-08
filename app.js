@@ -101,10 +101,35 @@ function buildNav(role) {
   }));
 }
 
-async function signIn(identifier, password) {
-  if (!sb) {
-    throw new Error(
-      "Supabase is not ready. Check supabase-config.js and make sure the Supabase JS library is loaded."
+async function invokeCreateUser(body) {
+  const {
+    data: { session },
+    error: sessionError
+  } = await sb.auth.getSession();
+
+  if (sessionError) {
+    throw new Error(sessionError.message);
+  }
+
+  if (!session?.access_token) {
+    throw new Error("Admin session expired. Please log in again.");
+  }
+
+  const { data, error } = await sb.functions.invoke(
+    "admin-create-user",
+    {
+      body,
+      headers: {
+        Authorization: `Bearer ${session.access_token}`
+      }
+    }
+  );
+
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+
+  return data;
+}
     );
   }
 
