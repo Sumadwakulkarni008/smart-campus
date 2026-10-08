@@ -14,7 +14,7 @@ const configured =
 
 let sb = null;
 
-if (configured && window.supabase?.createClient) {
+if (configured && window.supabase && window.supabase.createClient) {
   try {
     sb = window.supabase.createClient(supabaseUrl, supabaseKey, {
       auth: {
@@ -28,7 +28,7 @@ if (configured && window.supabase?.createClient) {
   }
 } else {
   console.error("Supabase JS library or configuration is missing.", {
-    hasLibrary: Boolean(window.supabase?.createClient),
+    hasLibrary: Boolean(window.supabase && window.supabase.createClient),
     hasUrl: Boolean(supabaseUrl),
     hasKey: Boolean(supabaseKey)
   });
@@ -64,8 +64,9 @@ function toast(message, type="info") {
   el.className = `toast show ${type}`;
   setTimeout(() => el.className = "toast", 3200);
 }
+
 function esc(v) {
-  return String(v ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+  return String(v !== null && v !== undefined ? v : "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
 }
 function today() { return new Date().toISOString().slice(0,10); }
 function dateText(v) { return v ? new Date(v + "T00:00:00").toLocaleDateString() : "-"; }
@@ -134,7 +135,7 @@ async function signIn(identifier, password) {
       throw error;
     }
 
-    if (!data?.user?.id) {
+    if (!data || !data.user || !data.user.id) {
       throw new Error("Supabase login succeeded but no user ID was returned.");
     }
 
@@ -150,7 +151,6 @@ async function loadProfile(userId) {
   state.profile = data;
 
   if (state.loginRole !== data.role) {
-    // Role tab is only a login hint; database role is authoritative.
     toast(`Logged in as ${roleName(data.role)}.`, "success");
   }
 
@@ -202,7 +202,7 @@ async function loadStudentDashboard() {
   const byClass = {};
   records.forEach(r => {
     const key = r.class_id;
-    if (!byClass[key]) byClass[key] = {name:r.classes?.class_name || "-", subject:r.classes?.subject || "-", total:0,present:0};
+    if (!byClass[key]) byClass[key] = {name: (r.classes && r.classes.class_name) || "-", subject: (r.classes && r.classes.subject) || "-", total:0,present:0};
     byClass[key].total++;
     if (r.status==="present") byClass[key].present++;
   });
@@ -211,7 +211,7 @@ async function loadStudentDashboard() {
   }</tbody>`;
 
   $("studentHistoryTable").innerHTML = `<thead><tr><th>Date</th><th>Class</th><th>Subject</th><th>Status</th></tr></thead><tbody>${
-    records.slice(0,20).map(r => `<tr><td>${dateText(r.attendance_date)}</td><td>${esc(r.classes?.class_name)}</td><td>${esc(r.classes?.subject)}</td><td class="${r.status==="present"?"status-safe":"status-risk"}">${r.status==="present"?"✅ Present":"❌ Absent"}</td></tr>`).join("") || `<tr><td colspan="4">No attendance records yet.</td></tr>`
+    records.slice(0,20).map(r => `<tr><td>${dateText(r.attendance_date)}</td><td>${esc(r.classes && r.classes.class_name)}</td><td>${esc(r.classes && r.classes.subject)}</td><td class="${r.status==="present"?"status-safe":"status-risk"}">${r.status==="present"?"✅ Present":"❌ Absent"}</td></tr>`).join("") || `<tr><td colspan="4">No attendance records yet.</td></tr>`
   }</tbody>`;
 
   const { data: notes, error: ne } = await sb.from("notifications").select("*").eq("student_id",p.id).order("created_at",{ascending:false}).limit(20);
@@ -249,7 +249,13 @@ async function loadClassStudents() {
   const date = $("attendanceDate").value;
   const { data: existing, error: ee } = await sb.from("attendance").select("student_id,status").eq("class_id",c.id).eq("attendance_date",date);
   if (ee) throw ee;
-  const map = Object.fromEntries((existing||[]).map(x=>[x.student_id,x.status]));
+  
+  // Replaced Object.fromEntries with older, phone-safe reduce method
+  const map = (existing||[]).reduce((acc, curr) => {
+    acc[curr.student_id] = curr.status;
+    return acc;
+  }, {});
+
   $("teacherStudentTable").innerHTML = `<thead><tr><th>#</th><th>USN</th><th>Student Name</th><th>Attendance</th></tr></thead><tbody>${
     state.students.map((s,i)=>`<tr><td>${i+1}</td><td>${esc(s.usn)}</td><td>${esc(s.full_name)}</td><td>
       <div class="attendance-toggle">
@@ -265,7 +271,7 @@ async function submitAttendance() {
   const date = $("attendanceDate").value;
   const rows = state.students.map(s => {
     const checked = document.querySelector(`input[name="st_${s.id}"]:checked`);
-    return {class_id:c.id, student_id:s.id, attendance_date:date, status:checked?.value || "present", marked_by:state.profile.id};
+    return {class_id:c.id, student_id:s.id, attendance_date:date, status: (checked ? checked.value : "present"), marked_by:state.profile.id};
   });
   if (!rows.length) return toast("No students in this class.", "error");
 
@@ -297,7 +303,9 @@ async function submitAttendance() {
   toast("Attendance saved.", "success");
   await loadClassStudents();
 }
-$("attendanceDate")?.addEventListener("change", ()=>{ if(state.selectedClass) loadClassStudents().catch(e=>toast(e.message,"error")); });
+if ($("attendanceDate")) {
+  $("attendanceDate").addEventListener("change", ()=>{ if(state.selectedClass) loadClassStudents().catch(e=>toast(e.message,"error")); });
+}
 
 async function loadAdminDashboard() {
   const [{data:students, error:se},{data:teachers,error:te},{data:classes,error:ce}] = await Promise.all([
@@ -315,13 +323,13 @@ async function loadAdminDashboard() {
   $("adminStudentTable").innerHTML=`<thead><tr><th>USN</th><th>Name</th><th>Dept</th><th>Sem</th><th>Section</th></tr></thead><tbody>${state.students.map(s=>`<tr><td>${esc(s.usn)}</td><td>${esc(s.full_name)}</td><td>${esc(s.department)}</td><td>${s.semester}</td><td>${esc(s.section)}</td></tr>`).join("")||`<tr><td colspan="5">No students.</td></tr>`}</tbody>`;
   $("adminTeacherTable").innerHTML=`<thead><tr><th>Name</th><th>Email</th><th>Department</th></tr></thead><tbody>${state.teachers.map(t=>`<tr><td>${esc(t.full_name)}</td><td>${esc(t.email)}</td><td>${esc(t.department)}</td></tr>`).join("")||`<tr><td colspan="3">No teachers.</td></tr>`}</tbody>`;
   $("classTeacherSelect").innerHTML=`<option value="">Select teacher</option>`+state.teachers.map(t=>`<option value="${t.id}">${esc(t.full_name)} — ${esc(t.department)}</option>`).join("");
-  $("adminClassTable").innerHTML=`<thead><tr><th>Class</th><th>Subject</th><th>Dept</th><th>Sem</th><th>Teacher</th></tr></thead><tbody>${(classes||[]).map(c=>`<tr><td>${esc(c.class_name)}</td><td>${esc(c.subject)}</td><td>${esc(c.department)}</td><td>${c.semester}</td><td>${esc(c.teacher?.full_name||"Unassigned")}</td></tr>`).join("")||`<tr><td colspan="5">No classes.</td></tr>`}</tbody>`;
+  $("adminClassTable").innerHTML=`<thead><tr><th>Class</th><th>Subject</th><th>Dept</th><th>Sem</th><th>Teacher</th></tr></thead><tbody>${(classes||[]).map(c=>`<tr><td>${esc(c.class_name)}</td><td>${esc(c.subject)}</td><td>${esc(c.department)}</td><td>${c.semester}</td><td>${esc((c.teacher && c.teacher.full_name)||"Unassigned")}</td></tr>`).join("")||`<tr><td colspan="5">No classes.</td></tr>`}</tbody>`;
 }
 
 async function invokeCreateUser(body) {
   const { data, error } = await sb.functions.invoke("admin-create-user", { body });
   if (error) throw error;
-  if (data?.error) throw new Error(data.error);
+  if (data && data.error) throw new Error(data.error);
   return data;
 }
 
