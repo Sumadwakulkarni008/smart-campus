@@ -84,9 +84,39 @@ function roleName(r) {
 
 function setLoginRole(role) {
   state.loginRole = role;
-  document.querySelectorAll(".role-tab").forEach((b) => b.classList.toggle("active", b.dataset.loginRole === role));
-  $("identifierLabel").textContent = role === "student" ? "USN" : "Email";
-  $("identifier").placeholder = role === "student" ? "Enter your USN" : "Enter your email";
+
+  document.querySelectorAll(".role-tab").forEach((b) => {
+    b.classList.toggle("active", b.dataset.loginRole === role);
+  });
+
+  const label = $("identifierLabel");
+  const input = $("identifier");
+
+  if (label) label.textContent = role === "student" ? "USN" : "Email";
+  if (input) {
+    input.placeholder = role === "student" ? "Enter your USN" : "Enter your email";
+    input.value = "";
+    input.type = "text"; // keep as text so USNs are accepted
+  }
+
+  const footer = $("loginHint");
+  if (footer) {
+    footer.textContent =
+      role === "student"
+        ? "Student login uses USN + password."
+        : "Teacher/Admin login uses email + password.";
+  }
+}
+function initLoginTabs() {
+  document.querySelectorAll(".role-tab").forEach((btn) => {
+    btn.setAttribute("type", "button"); // stops the tab from submitting the form
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setLoginRole(btn.dataset.loginRole);
+    });
+  });
+  setLoginRole(state.loginRole);
 }
 
 function showPage(id, title, subtitle = "College attendance & support") {
@@ -213,3 +243,8 @@ async function logout() {
 async function loadStudentDashboard() {
   const p = state.profile;
   $("studentWelcome").textContent = `Welcome, ${p.full_name}`;
+  if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initLoginTabs);
+} else {
+  initLoginTabs();
+}
