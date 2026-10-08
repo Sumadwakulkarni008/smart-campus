@@ -272,14 +272,7 @@ async function resetStudentPassword(userId, newPassword) {
 }
 
 async function invokeCreateUser(body) {
-  const { data: sessionData } = await sb.auth.getSession();
-  const token = sessionData?.session?.access_token;
-  if (!token) throw new Error("Admin session expired. Please log in again.");
-
-  const { data, error } = await sb.functions.invoke("admin-create-user", {
-    body,
-    headers: { Authorization: `Bearer ${token}` }
-  });
+  const { data, error } = await sb.functions.invoke("admin-create-user", { body });
   if (error) throw error;
   if (data?.error) throw new Error(data.error);
   return data;
